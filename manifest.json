@@ -4,6 +4,6 @@
   "version": "0.1.0",
   "action": { "default_popup": "popup.html", "default_title": "AI Artist Finder" },
   "permissions": ["storage", "activeTab"],
-  "host_permissions": ["https://your-proxy.vercel.app/*"],
+  "host_permissions": ["https://ai-music-assistant.vercel.app/*"],
   "background": { "service_worker": "src/background.js", "type": "module" }
 }
