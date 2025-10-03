@@ -80,44 +80,66 @@ export default function App() {
   }
 
   return (
-    <div className="popup">
-      <header className="header">
-        <div className="title">AI Artist Finder</div>
-        <div className="subtitle">Chat para descubrir artistas</div>
+    <div className="w-[360px] h-[560px] bg-zinc-950 text-zinc-100 flex flex-col">
+      <header className="px-4 pt-3 pb-2 border-b border-white/10">
+        <div className="text-sm uppercase tracking-wide text-white/60">AI Artist Finder</div>
+        <div className="text-lg font-semibold">Descubre artistas por letras, look o género</div>
       </header>
 
-      <div className="chips">
-        <button onClick={() => onChip("Busco artista con letras melancólicas y guitarra acústica")}>Letras</button>
-        <button onClick={() => onChip("Artista de estética gótica Y2K, maquillaje oscuro")}>Estética</button>
-        <button onClick={() => onChip("Quiero algo tipo synth-pop femenino, 2010s")}>Género</button>
+      <div className="px-3 py-2 flex gap-2 flex-wrap">
+        <button
+          className="px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-sm transition"
+          onClick={() => onChip("Busco artista con letras melancólicas y guitarra acústica")}
+        >
+          Letras
+        </button>
+        <button
+          className="px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-sm transition"
+          onClick={() => onChip("Artista de estética gótica Y2K, maquillaje oscuro")}
+        >
+          Estética
+        </button>
+        <button
+          className="px-3 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-sm transition"
+          onClick={() => onChip("Quiero algo tipo synth-pop femenino, 2010s")}
+        >
+          Género
+        </button>
       </div>
 
-      <div ref={scrollerRef} className="messages">
+      <div ref={scrollerRef} className="scroll-area flex-1 overflow-y-auto px-3 py-2 space-y-2">
         {messages.map((m) => (
-          <div key={m.id} className={`row ${m.role}`}>
-            <div className={`bubble ${m.role}`}>
+          <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+            <div
+              className={
+                "max-w-[80%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm " +
+                (m.role === "user"
+                  ? "bg-indigo-600 text-white rounded-br-sm"
+                  : "bg-white/10 text-white rounded-bl-sm")
+              }
+            >
               {m.content}
             </div>
           </div>
         ))}
         {isStreaming && (
-          <div className="row assistant">
-            <div className="bubble assistant">
-              <span className="typing">
-                <i></i><i></i><i></i>
-              </span>
+          <div className="flex justify-start">
+            <div className="bg-white/10 text-white rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
+              <span className="typing-dots"><i></i><i></i><i></i></span>
             </div>
           </div>
         )}
       </div>
 
-      <div className="composer">
-        <label className="file">
-          <input type="file" accept="image/*" onChange={onPickImage} />
-          {image ? "Imagen lista ✓" : "Subir imagen"}
+      <div className="p-3 border-t border-white/10 grid grid-cols-[auto,1fr,auto] gap-2 items-center">
+        <label className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-sm cursor-pointer">
+          <input className="hidden" type="file" accept="image/*" onChange={onPickImage} />
+          <span className="i-ph-image text-lg" />
+          <span>{image ? "Imagen lista ✓" : "Subir"}</span>
         </label>
+
         <input
-          className="input"
+          className="w-full px-3 py-2 rounded-xl bg-white/[0.06] focus:bg-white/[0.09] outline-none border border-white/10 focus:border-white/20 text-sm placeholder:text-white/40"
           placeholder="Escribe tu consulta..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -128,11 +150,14 @@ export default function App() {
             }
           }}
         />
-        <button className="send" onClick={onSend} disabled={isStreaming}>
+        <button
+          className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed text-sm font-medium"
+          onClick={onSend}
+          disabled={isStreaming}
+        >
           {isStreaming ? "..." : "Enviar"}
         </button>
       </div>
     </div>
   )
 }
-
