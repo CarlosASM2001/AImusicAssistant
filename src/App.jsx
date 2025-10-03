@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react"
 
-const BACKEND_URL = "https://a-imusic-assistant.vercel.app/"
+const BACKEND_URL = "https://ai-music-assistant.vercel.app/api/query"
 
 export default function App() {
   const [messages, setMessages] = useState([
