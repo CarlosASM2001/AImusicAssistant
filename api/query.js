@@ -68,7 +68,14 @@ export default async function handler(req) {
 
 function base64FromArrayBuffer(ab) {
   const bytes = new Uint8Array(ab);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
+  // Prefer Web API btoa if available (e.g., Vercel Edge). Fallback to Node Buffer.
+  if (typeof btoa === "function") {
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(bytes).toString("base64");
+  }
+  throw new Error("No base64 encoder available in this environment");
 }

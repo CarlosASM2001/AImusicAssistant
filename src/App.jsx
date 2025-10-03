@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react"
 
-const BACKEND_URL = "https://ai-music-assistant.vercel.app/api/query"
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "https://ai-music-assistant.vercel.app/api/query"
 
 export default function App() {
   const [messages, setMessages] = useState([
