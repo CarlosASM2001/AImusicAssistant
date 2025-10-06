@@ -48,19 +48,33 @@ export default async function handler(req) {
     let file = null;
 
     if (contentType.includes("application/json")) {
-      const data = await req.json();
+      const data = await req.json().catch(() => ({}));
       query = (data?.query || "").toString().slice(0, 1000);
       // Imagen no soportada vía JSON en este endpoint por simplicidad
     } else if (contentType.includes("multipart/form-data")) {
-      const form = await req.formData();
-      query = (form.get("query") || "").toString().slice(0, 1000);
+      // Algunos clientes envían partes sin nombre; capturamos error y devolvemos 400 entendible
+      let form;
+      try {
+        form = await req.formData();
+      } catch (e) {
+        return new Response(
+          JSON.stringify({ error: "FormData inválido. Asegúrate de nombrar los campos (query, image)." }),
+          { status: 400, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } }
+        );
+      }
+      const maybeQuery = form.get("query");
+      query = (maybeQuery ?? "").toString().slice(0, 1000);
       file = form.get("image");
+    } else if (contentType.includes("application/x-www-form-urlencoded")) {
+      const body = await req.text();
+      const params = new URLSearchParams(body);
+      query = (params.get("query") || "").toString().slice(0, 1000);
     } else if (contentType.includes("text/plain")) {
       const txt = await req.text();
       query = (txt || "").toString().slice(0, 1000);
     } else {
       return new Response(
-        JSON.stringify({ error: "Unsupported Media Type. Usa form-data o JSON." }),
+        JSON.stringify({ error: "Unsupported Media Type. Usa form-data, JSON o x-www-form-urlencoded." }),
         { status: 415, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } }
       );
     }
@@ -96,16 +110,28 @@ export default async function handler(req) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
+    // Modelos soportados para streaming en v1beta: usa alias "gemini-1.5-flash-001" o "gemini-1.5-pro-001"
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-1.5-flash-001",
       systemInstruction:
         "Responde en español y sé concreto. Prioriza artistas relevantes al criterio del usuario. Evita relleno.",
     });
 
-    const resp = await model.generateContentStream({
-      contents: [{ role: "user", parts }],
-      generationConfig: { temperature: 0.7 },
-    });
+    let resp;
+    try {
+      resp = await model.generateContentStream({
+        contents: [{ role: "user", parts }],
+        generationConfig: { temperature: 0.7 },
+      });
+    } catch (apiErr) {
+      // Devolver detalle acotado para diagnóstico sin exponer estructura interna
+      const message = apiErr?.message || "Error llamando al proveedor";
+      const status = apiErr?.status || 502;
+      return new Response(
+        JSON.stringify({ error: "Proveedor no disponible", detail: message }),
+        { status, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } }
+      );
+    }
 
     const stream = new ReadableStream({
       async start(controller) {
