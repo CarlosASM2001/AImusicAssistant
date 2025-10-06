@@ -110,33 +110,130 @@ export default async function handler(req) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    // Modelos soportados para streaming en v1beta: usa alias "gemini-1.5-flash-001" o "gemini-1.5-pro-001"
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash-001",
-      systemInstruction:
-        "Responde en español y sé concreto. Prioriza artistas relevantes al criterio del usuario. Evita relleno.",
-    });
+    const candidateModels = [
+      "gemini-1.5-flash",
+      "gemini-1.5-flash-latest",
+      "gemini-1.5-flash-8b",
+      "gemini-1.5-pro",
+      "gemini-1.5-pro-latest",
+      "gemini-pro",
+    ];
 
-    let resp;
-    try {
-      resp = await model.generateContentStream({
-        contents: [{ role: "user", parts }],
-        generationConfig: { temperature: 0.7 },
+    let streamSource = null;
+    let lastUnsupportedErr = null;
+
+    for (const modelName of candidateModels) {
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction:
+          "Responde en español y sé concreto. Prioriza artistas relevantes al criterio del usuario. Evita relleno.",
       });
-    } catch (apiErr) {
-      // Devolver detalle acotado para diagnóstico sin exponer estructura interna
-      const message = apiErr?.message || "Error llamando al proveedor";
-      const status = apiErr?.status || 502;
-      return new Response(
-        JSON.stringify({ error: "Proveedor no disponible", detail: message }),
-        { status, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } }
-      );
+      try {
+        const s = await model.generateContentStream({
+          contents: [{ role: "user", parts }],
+          generationConfig: { temperature: 0.7 },
+        });
+        streamSource = s.stream;
+        break;
+      } catch (e) {
+        const msg = String(e?.message || "");
+        if (msg.includes("not found") || msg.includes("not supported") || msg.includes("ListModels")) {
+          lastUnsupportedErr = e;
+          continue; // intenta siguiente modelo
+        }
+        const message = e?.message || "Error llamando al proveedor";
+        const status = e?.status || 502;
+        return new Response(
+          JSON.stringify({ error: "Proveedor no disponible", detail: message }),
+          { status, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } }
+        );
+      }
+    }
+
+    // Si no hay soporte de streaming tras intentar candidatos, intentar descubrir modelos soportados vía ListModels
+    if (!streamSource) {
+      try {
+        const discovered = await discoverModelsViaList(apiKey, true);
+        for (const modelName of discovered) {
+          const model = genAI.getGenerativeModel({
+            model: modelName,
+            systemInstruction:
+              "Responde en español y sé concreto. Prioriza artistas relevantes al criterio del usuario. Evita relleno.",
+          });
+          try {
+            const s = await model.generateContentStream({
+              contents: [{ role: "user", parts }],
+              generationConfig: { temperature: 0.7 },
+            });
+            streamSource = s.stream;
+            break;
+          } catch (e) {
+            // Continua probando
+          }
+        }
+      } catch {
+        // ignorar errores de descubrimiento y seguir con fallback sin streaming
+      }
+    }
+
+    // Si aún no hay soporte de streaming, intenta no-stream y envía en un solo chunk
+    if (!streamSource) {
+      let text = "";
+      let picked = null;
+      let lastErr = lastUnsupportedErr;
+      // Primero intenta con cualquier modelo descubierto que soporte generateContent
+      let genCandidates = [];
+      try {
+        genCandidates = await discoverModelsViaList(apiKey, false);
+      } catch {
+        // si falla, usa candidatos predefinidos
+        genCandidates = candidateModels;
+      }
+      for (const modelName of genCandidates) {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction:
+            "Responde en español y sé concreto. Prioriza artistas relevantes al criterio del usuario. Evita relleno.",
+        });
+        try {
+          const resp = await model.generateContent({
+            contents: [{ role: "user", parts }],
+            generationConfig: { temperature: 0.7 },
+          });
+          text = resp?.response?.text?.() ?? "";
+          picked = modelName;
+          break;
+        } catch (e) {
+          lastErr = e;
+          continue;
+        }
+      }
+
+      if (!picked) {
+        const message = lastErr?.message || "Modelos no disponibles para esta clave/región";
+        const status = lastErr?.status || 502;
+        return new Response(
+          JSON.stringify({ error: "Proveedor no disponible", detail: message }),
+          { status, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } }
+        );
+      }
+
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(text));
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: { ...cors, "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-cache" },
+      });
     }
 
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
-        for await (const chunk of resp.stream) {
+        for await (const chunk of streamSource) {
           controller.enqueue(encoder.encode(chunk.text()));
         }
         controller.close();
@@ -157,4 +254,30 @@ function base64FromArrayBuffer(ab) {
   let binary = "";
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
+}
+
+// Descubre modelos disponibles para la API key actual usando REST
+// Si streamPreferred=true, prioriza modelos con "streamGenerateContent" en supportedGenerationMethods
+async function discoverModelsViaList(apiKey, streamPreferred) {
+  const url = "https://generativelanguage.googleapis.com/v1beta/models";
+  const res = await fetch(url + `?key=${encodeURIComponent(apiKey)}`);
+  if (!res.ok) throw new Error(`ListModels failed: ${res.status}`);
+  const data = await res.json();
+  const models = Array.isArray(data?.models) ? data.models : [];
+  const supports = (m, method) => Array.isArray(m?.supportedGenerationMethods) && m.supportedGenerationMethods.includes(method);
+
+  const names = models.map((m) => m?.name?.split("/").pop()).filter(Boolean);
+
+  if (streamPreferred) {
+    // Filtra por soporte de streamGenerateContent; cae a generateContent si no hay
+    const streamable = models
+      .filter((m) => supports(m, "streamGenerateContent"))
+      .map((m) => m.name.split("/").pop());
+    if (streamable.length > 0) return streamable;
+  }
+
+  const generatable = models
+    .filter((m) => supports(m, "generateContent"))
+    .map((m) => m.name.split("/").pop());
+  return generatable.length > 0 ? generatable : names;
 }
