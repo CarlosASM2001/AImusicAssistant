@@ -4,18 +4,65 @@ export const config = { runtime: "edge" };
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
 export default async function handler(req) {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+
+
+  if(req.method === "GET"){
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        message: "Este endpoint solo acepta POST",
+        usage:{
+          preferred: {
+            method: "POST",
+            contentType: "multipart/form-data",
+            fields: {
+              query: "string (opcional, max 1000 caracteres)",
+              image: "file (opcional, imagen de portada o artista)"}
+          },
+            alternative: {
+            method: "POST",
+            contentType: "application/json",
+            body: {query: "string"}
+          },
+        },
+      }),
+      {headers: {...cors, "Content-Type": "application/json; charset=utf-8"}}
+    )
+  }
+
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: cors });
 
   try {
-    const form = await req.formData();
-    const query = (form.get("query") || "").toString().slice(0, 1000);
-    const file = form.get("image");
+    
+    const contentType = (req.headers.get("content-type") || "").toLowerCase();
+    let query = "";
+    let file = null;
+
+
+    if(contentType.includes("application/json")){
+      const data = await req.json();
+      query = (data.query || "").toString().slice(0, 1000);
+
+    }else if(contentType.includes("multipart/form-data")){
+      const formData = await req.formData();
+      query = (formData.get("query") || "").toString().slice(0, 1000);
+      file = formData.get("image");
+      if (file && file.size === 0) file = null;
+    }else if(contentType.includes("text/plain")){
+      const text = await req.text();
+      query = (text || "").toString().slice(0, 1000);
+    }else{
+      return new Response(
+        JSON.stringify({ ok: false, message: "Content-Type no soportado. Usa multipart/form-data, application/json" }),
+        { status: 415, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } }
+      );
+    }
 
     const parts = [];
     if (query) {
@@ -35,7 +82,24 @@ export default async function handler(req) {
       parts.push({ inlineData: { mimeType, data: base64 } });
     }
 
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+   
+
+    if (parts.length === 0) {
+      return new Response(
+        JSON.stringify({ ok: false, message: "Falta 'query' o 'image'" }),
+        { status: 400, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } }
+      );
+    } 
+
+    const apiKey= process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({ ok: false, message: "Falta clave API de Gemini" }),
+        { status: 500, headers: { ...cors, "Content-Type": "application/json; charset=utf-8" } }
+      );
+    }
+     
+    const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
       model: "gemini-1.5-flash",
       systemInstruction:

@@ -4,5 +4,5 @@
   "version": "0.1.0",
   "action": { "default_popup": "popup.html", "default_title": "AI Artist Finder" },
   "permissions": ["storage", "activeTab"],
-  "host_permissions": ["https://a-imusic-assistant.vercel.app/*"]
+  "host_permissions": ["https://a-imusic-assistant.vercel.app"]
 }
