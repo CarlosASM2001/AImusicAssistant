@@ -83,7 +83,7 @@ export default async function handler(req) {
     if (query) {
       parts.push({
         text:
-          `Rol: Eres un curador musical. Tarea: recomendar 3-5 artistas.
+          `Rol: Eres un curador musical. Tarea: recomendar artistas basados en el contexto del usuario.
         Contexto del usuario: ${query}
         Criterio: letras, estética/imagen, subgénero, época, similares.
         Formato: lista breve con artista + por qué.`,
